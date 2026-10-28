@@ -59,6 +59,13 @@ def production(path, roots):
                         for pattern in ("*.test.*", "*.spec.*")))
 
 
+def validate_test_inclusions(production_files, patterns):
+    # Sonar also adds test inclusion patterns to production exclusions.
+    overlap = [p for p in production_files if any(fnmatch.fnmatch(p, pattern) for pattern in patterns)]
+    if overlap:
+        raise ValueError("Test inclusion patterns also exclude production files: " + overlap[0])
+
+
 def scope(root):
     props = properties(root / "sonar-project.properties")
     sources = props["sonar.sources"].split(",")
@@ -83,6 +90,7 @@ def scope(root):
     tracked = subprocess.check_output(["git", "ls-files", "-z"], cwd=root).decode().split("\0")
     prod = sorted(p for p in tracked if production(p, sources))
     test = sorted(p for p in tracked if inside(p, tests) and Path(p).suffix in COVERABLE)
+    validate_test_inclusions(prod, props.get("sonar.test.inclusions", "").split(","))
     if not prod or not test:
         raise ValueError("Empty production or unit-test scope")
     for p in prod + test:
@@ -232,17 +240,22 @@ def export(args):
                                                           "open": issue["key"]})
         safe_issues.append(safe)
     components = paginate(api, "/api/components/tree", "components",
-                           {"component": key, "branch": branch, "qualifiers": "FIL", "strategy": "all"})
+                           {"component": key, "branch": branch, "qualifiers": "FIL,UTS", "strategy": "all"})
+    # Keep diagnostic evidence even when a scope/import check rejects the report.
+    save(out / "files.json", components)
+    save(out / "metrics.json", metrics)
+    save(out / "quality-gate.json", gate)
     validation = {"snapshotOnly": args.snapshot}
     if not args.snapshot:
         manifest = json.loads((root / "reports/sonar/scope.json").read_text())
         test_paths = set(manifest["testFiles"])
         expected = set(manifest["productionFiles"])
-        actual = {c["path"] for c in components}
-        outside = sorted(actual - expected - test_paths)
-        missing = sorted(expected - actual)
-        validation = {"unexpectedFiles": outside, "missingProductionFiles": missing,
-                      "productionFiles": len(actual & expected), "testFiles": len(actual & test_paths),
+        actual_sources = {c["path"] for c in components if c["qualifier"] == "FIL"}
+        actual_tests = {c["path"] for c in components if c["qualifier"] == "UTS"}
+        outside = sorted((actual_sources - expected) | (actual_tests - test_paths))
+        missing = sorted((expected - actual_sources) | (test_paths - actual_tests))
+        validation = {"unexpectedFiles": outside, "missingSourceOrTestFiles": missing,
+                      "productionFiles": len(actual_sources), "testFiles": len(actual_tests),
                       "sourceAndTestRootsDisjoint": True}
         save(out / "scope-validation.json", validation)
         if outside or missing:
@@ -252,7 +265,7 @@ def export(args):
         if "coverage" not in metrics or "lines_to_cover" not in metrics:
             raise ValueError("Server has no imported coverage/lines-to-cover metrics")
         file_measures = paginate(api, "/api/measures/component_tree", "components", {
-            "component": key, "branch": branch, "qualifiers": "FIL", "strategy": "all",
+            "component": key, "branch": branch, "qualifiers": "FIL,UTS", "strategy": "all",
             "metricKeys": "ncloc,lines_to_cover,uncovered_lines,coverage"})
         save(out / "file-measures.json", file_measures)
         measured_files = {f["path"]: {m["metric"]: m.get("value") for m in f.get("measures", [])}
