@@ -4,7 +4,7 @@ import io
 from pathlib import Path
 import tempfile
 import unittest
-from report import csv_text, normalize_lcov, paginate
+from report import csv_text, normalize_lcov, paginate, validate_test_inclusions
 
 
 class ReportChecks(unittest.TestCase):
@@ -20,6 +20,14 @@ class ReportChecks(unittest.TestCase):
         records[-1] = records[0]
         with self.assertRaises(ValueError):
             paginate(get, "/issues", "issues", {})
+
+    def test_test_inclusions_do_not_hide_production(self):
+        paths = ["packages/contact-center/store/src/index.ts",
+                 "packages/contact-center/cc-components/src/widget.tsx"]
+        with self.assertRaises(ValueError):
+            validate_test_inclusions(paths, ["**/*.ts", "**/*.tsx"])
+        validate_test_inclusions(paths, ["packages/contact-center/*/tests/**/*.ts",
+                                         "packages/contact-center/*/tests/**/*.tsx"])
 
     def test_csv_quotes_newlines_and_formula(self):
         message = 'comma, quote " and\nnewline'
