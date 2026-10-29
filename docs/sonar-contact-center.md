@@ -8,7 +8,7 @@ Use Node 24 and the checked-in Yarn 4.5.1. Install with `--immutable`.
 ## Scope and coverage
 
 `sonar-project.properties` is the authoritative scanner configuration. Production roots are explicit;
-unit-test roots are separate. The report script also checks them against a fixed approved allowlist.
+unit-test roots are separate. Test inclusion patterns are prefixed with their test directories: Sonar also uses these patterns to exclude production files. Broad extension-only test patterns would hide production code. A regression check rejects this overlap. The report script also checks the roots against a fixed approved allowlist.
 Only JS, JSX, TS, TSX, CSS and SCSS under those production roots are analyzed. Type declarations,
 test/spec files, mocks, dependencies, generated bundles and archives are excluded.
 Other SDK plugins, meetings, sample applications and test-fixtures are not production scope.
@@ -30,13 +30,12 @@ using ignored generated output. It does not change application code or dependenc
 Existing build/type-check failures are captured in `build-status.json` and `test-status.json`.
 If a package's original `tsc && jest` script stops before Jest, the runner additionally invokes that
 workspace's same Jest configuration only to obtain coverage. The original command stays failed and
-the workflow ends red. This is diagnostic coverage from failing tests, not release readiness.
+the workflow ends red. This is diagnostic coverage from a run with failed build/type checks; it does not establish release readiness.
 No test threshold is reduced and no failed unit test is labeled passed.
 
 ## Reports and validation
 
-`scripts/sonar/report.py` uses the public SonarCloud Web API, optionally authenticated using
-the environment only. It waits for the exact scanner CE task, verifies SUCCESS and the exact
+`scripts/sonar/report.py` uses the SonarCloud Web API. CI authenticates with SONAR_TOKEN from the environment only; the CE-task endpoint requires authenticated access. It waits for the exact scanner CE task, verifies SUCCESS and the exact
 SCM revision on the main branch, exports all issue/file pages, and detects truncation or duplicates.
 CSV fields are quoted with the standard CSV writer and protected against spreadsheet formulas.
 SCM authors/assignees and credentials are omitted.
@@ -44,7 +43,7 @@ SCM authors/assignees and credentials are omitted.
 Artifacts named `contact-center-sonar-<sha>` contain `reports/sonar/` and `coverage/sonar/`, retained
 30 days. `latest/SUMMARY.md`, `issues.csv`, `issues.json`, metrics, branch/commit metadata,
 file lists, server task/warnings and scope/LCOV validation evidence are included.
-The workflow summary links the dashboard and run. Download the artifact to retain a local copy.
+The workflow summary links the dashboard and run. Download the artifact to retain a local copy. If the browser client blocks the artifact host, public SonarCloud metrics, issues and file evidence can be downloaded separately; record this provenance and obtain the current task from the public ce/component endpoint. Keep the CI artifact link as the authority for the run-generated LCOV and build/test files.
 Quality gate ERROR fails the export step; NONE is reported as **Not computed**, never passed.
 Test/build failures fail the workflow independently of the static analysis result.
 Distinct issue counts differ from the sum of overlapping software-quality dimensions.
